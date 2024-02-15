@@ -1,3 +1,15 @@
+/*
+* Java automation to output the current release status of an OpenSearch release, example https://github.com/opensearch-project/opensearch-build/issues/4115#issuecomment-1944768141.
+* This automation will help gather all the following Information:
+* 1) Outputs the GitHub Search URL for all the existing Integration test failure issues for a given release.
+* 2) Build Status of the OpenSerach and OpenSearch Dashboards release candidates.
+* 3) Outputs the triggered Integration build of OpenSearch and OpenSearch Dashboards by looping through the top 50 integration tests jobs which are triggered by the upstream distribution build job.
+* 4) Summarizes each failed plugin for each executed distribution.
+* 5) Outputs pending open PR’s with release label.
+* 6) Outputs pending open issues with release label.
+* 7) Outputs the docker scan report URL for the generate RC.
+* */
+
 package org.opensearch;
 
 import org.json.JSONArray;
@@ -10,27 +22,42 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class OpenSearchReleaseStatus {
 
     public static void main(String[] args) {
+        // The OpenSearch release version
         String releaseVersion = "v2.12.0";
         System.out.println("## Release " + releaseVersion + " Current Status");
-        System.out.println("### Integration test issues:");
+        System.out.println("### Integration test failure issues:");
         System.out.println("Plugin teams please go through the issues and try to close them as soon as possible");
         System.out.println(String.format("https://github.com/issues?q=is%%3Aopen+is%%3Aissue+user%%3Aopensearch-project+label%%3A%s+label%%3Aautocut+%%5BAUTOCUT%%5D+in%%3Atitle+", releaseVersion));
         String jenkinsUrl = "https://build.ci.opensearch.org/";
+        String dockerScanJob = "docker-scan";
+        // The OpenSearch Integ test job name
         String openSearchIntegJobName = "integ-test";
+        // The OpenSearch Distribution job name
         String upstreamOpenSearchJob = "distribution-build-opensearch";
+        // The OpenSearch identified release candidate
         int openSearchBuildNumber = 9414;
+        // The most recent 50 builds to check which are triggered by the upstream Distribution build
         int maxRecentBuildsToCheck = 50;
         System.out.println("### OpenSearch");
         buildInformation(jenkinsUrl, openSearchIntegJobName, maxRecentBuildsToCheck, openSearchBuildNumber, upstreamOpenSearchJob);
+        System.out.println("### Docker Scan Results");
+        extractAndSearchDockerScan(jenkinsUrl, upstreamOpenSearchJob, openSearchBuildNumber);
+        // The OpenSearch Dashboards Integ test job name
         String openSearchDashboardsIntegJobName = "integ-test-opensearch-dashboards";
+        // The OpenSearch Dashboards Distribution job name
         String upstreamOpenSearchDashboardsJob = "distribution-build-opensearch-dashboards";
+        // The OpenSearch Dashboards identified release candidate
         int openSearchDashboardsBuildNumber = 7286;
         System.out.println("### OpenSearch Dashboards");
         buildInformation(jenkinsUrl, openSearchDashboardsIntegJobName, maxRecentBuildsToCheck, openSearchDashboardsBuildNumber, upstreamOpenSearchDashboardsJob);
+        System.out.println("### Docker Scan Results");
+        extractAndSearchDockerScan(jenkinsUrl, upstreamOpenSearchDashboardsJob, openSearchDashboardsBuildNumber);
         System.out.println("### Pending PR’s with release label");
         System.out.println(String.format("https://github.com/issues?q=is%%3Aopen+is%%3Apr+user%%3Aopensearch-project+label%%3A%s+", releaseVersion));
         System.out.println("### Pending Issues with release label");
@@ -172,10 +199,10 @@ public class OpenSearchReleaseStatus {
         String distribution = parts.length > 5 && !parts[5].isEmpty() ? parts[2].trim() + " " + parts[5].trim() : parts[2].trim() + " " + parts[4].trim();
 
         // Print Build URL
-        System.out.println("- Integ Test Build URL: " + buildUrl);
+        System.out.println("- Integ Test Build URL: " + buildUrl + " ");
 
         // Print Distribution
-        System.out.println("Distribution Type: " + "**" + distribution + "**");
+        System.out.println("  Distribution Type: " + "**" + distribution + "**" + " ");
 
         // Fetch failed stages
         apiUrl = jenkinsUrl + "/job/" + jobName + "/" + buildNumber + "/wfapi/describe";
@@ -208,9 +235,34 @@ public class OpenSearchReleaseStatus {
         }
 
         // Print Failed Stages
-        System.out.println("Failed Components: " + "**" + failedStagesBuilder.toString() + "**");
+        System.out.println("  Failed Components: " + "**" + failedStagesBuilder.toString() + "**" + " ");
     }
 
-
-
+    private static void extractAndSearchDockerScan(String jenkinsUrl, String jobName, int buildNumber) {
+        try {
+            String logUrl = jenkinsUrl + "job/" + jobName + "/" + buildNumber + "/consoleText";
+            URL url = new URL(logUrl);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                StringBuilder consoleLogBuilder = new StringBuilder();
+                String line;
+                while ((line = in.readLine()) != null) {
+                    consoleLogBuilder.append(line).append("\n");
+                }
+                String consoleLog = consoleLogBuilder.toString();
+                String searchString = "Build docker-scan \\#(\\d+)";
+                Pattern pattern = Pattern.compile(searchString);
+                Matcher matcher = pattern.matcher(consoleLog);
+                if (matcher.find()) {
+                    String dockerScanNumber = matcher.group(1);
+                     System.out.println("The docker scan URL is " + jenkinsUrl + "job/" + "docker-scan" + "/" + dockerScanNumber + "/artifact/scan_docker_image.txt");
+                } else {
+                    System.out.println("String not found in log.");
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 }
