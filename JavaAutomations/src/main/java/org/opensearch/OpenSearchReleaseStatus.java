@@ -41,7 +41,7 @@ public class OpenSearchReleaseStatus {
         // The OpenSearch Distribution job name
         String upstreamOpenSearchJob = "distribution-build-opensearch";
         // The OpenSearch identified release candidate
-        int openSearchBuildNumber = 9414;
+        int openSearchBuildNumber = 9445;
         // The most recent 50 builds to check which are triggered by the upstream Distribution build
         int maxRecentBuildsToCheck = 50;
         System.out.println("### OpenSearch");
@@ -53,7 +53,7 @@ public class OpenSearchReleaseStatus {
         // The OpenSearch Dashboards Distribution job name
         String upstreamOpenSearchDashboardsJob = "distribution-build-opensearch-dashboards";
         // The OpenSearch Dashboards identified release candidate
-        int openSearchDashboardsBuildNumber = 7286;
+        int openSearchDashboardsBuildNumber = 7326;
         System.out.println("### OpenSearch Dashboards");
         buildInformation(jenkinsUrl, openSearchDashboardsIntegJobName, maxRecentBuildsToCheck, openSearchDashboardsBuildNumber, upstreamOpenSearchDashboardsJob);
         System.out.println("### Docker Scan Results");
@@ -195,14 +195,20 @@ public class OpenSearchReleaseStatus {
         JSONObject json = new JSONObject(response.toString());
         String description = json.optString("description");
         String[] parts = description.split(",");
+        String distribution = (parts != null && parts.length > 2) ? (parts.length > 5 && !parts[5].isEmpty() ? parts[2].trim() + " " + parts[5].trim() : parts[2].trim() + " " + (parts.length > 4 ? parts[4].trim() : "")) : "";
+
+        // Check if distribution type is empty
+        if (distribution.isEmpty()) {
+            return;
+        }
+
         String buildUrl = jenkinsUrl + "/blue/organizations/jenkins/" + jobName + "/detail/" + jobName + "/" + buildNumber + "/pipeline";
-        String distribution = parts.length > 5 && !parts[5].isEmpty() ? parts[2].trim() + " " + parts[5].trim() : parts[2].trim() + " " + parts[4].trim();
 
         // Print Build URL
-        System.out.println("- Integ Test Build URL: " + buildUrl + " ");
+        System.out.println("- Integ Test Build URL: " + buildUrl);
 
         // Print Distribution
-        System.out.println("  Distribution Type: " + "**" + distribution + "**" + " ");
+        System.out.println("  Distribution Type: " + "**" + distribution + "**");
 
         // Fetch failed stages
         apiUrl = jenkinsUrl + "/job/" + jobName + "/" + buildNumber + "/wfapi/describe";
@@ -220,22 +226,18 @@ public class OpenSearchReleaseStatus {
         json = new JSONObject(response.toString());
         JSONArray stages = json.getJSONArray("stages");
 
-        StringBuilder failedStagesBuilder = new StringBuilder();
-        for (int i = 0; i < stages.length(); i++) {
-            JSONObject stage = stages.getJSONObject(i);
-            String status = stage.getString("status");
+        // Extract failed stages using Stream API
+        String failedStages = IntStream.range(0, stages.length())
+                .mapToObj(stages::getJSONObject)
+                .filter(stage -> "FAILED".equals(stage.getString("status")))
+                .map(stage -> stage.getString("name"))
+                .collect(Collectors.joining(", "));
 
-            if (status.equals("FAILED")) {
-                String stageName = stage.getString("name");
-                if (failedStagesBuilder.length() > 0) {
-                    failedStagesBuilder.append(", ");
-                }
-                failedStagesBuilder.append(stageName);
-            }
+        // Check if failed stages are present
+        if (!failedStages.isEmpty()) {
+            // Print Failed Stages
+            System.out.println("  Failed Components: " + "**" + failedStages + "**");
         }
-
-        // Print Failed Stages
-        System.out.println("  Failed Components: " + "**" + failedStagesBuilder.toString() + "**" + " ");
     }
 
     private static void extractAndSearchDockerScan(String jenkinsUrl, String jobName, int buildNumber) {
